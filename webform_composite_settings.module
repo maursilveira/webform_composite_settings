@@ -1,0 +1,31 @@
+<?php
+
+/**
+ * @file
+ * Exposes full element settings for Webform custom composite sub-elements.
+ *
+ * The implementations live in WebformCompositeSettingsHooks. The functions here
+ * exist only for Drupal 10, which knows nothing of #[Hook] classes; on
+ * Drupal 11.1 and later #[LegacyHook] makes core skip them, so each hook runs
+ * once on every supported core.
+ */
+
+use Drupal\Core\Hook\Attribute\LegacyHook;
+use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\webform_composite_settings\Hook\WebformCompositeSettingsHooks;
+
+/**
+ * Implements hook_help().
+ */
+#[LegacyHook]
+function webform_composite_settings_help($route_name, RouteMatchInterface $route_match): ?string {
+  return \Drupal::service(WebformCompositeSettingsHooks::class)->help($route_name, $route_match);
+}
+
+/**
+ * Implements hook_element_info_alter().
+ */
+#[LegacyHook]
+function webform_composite_settings_element_info_alter(array &$info): void {
+  \Drupal::service(WebformCompositeSettingsHooks::class)->elementInfoAlter($info);
+}

@@ -1,0 +1,18 @@
+/**
+ * @file
+ * Styles for the settings dialog's tabs.
+ *
+ * The wrapper drops webform's 'webform-tabs' class so that webform's own tab
+ * behaviour ignores this markup, which also means its spacing rules no longer
+ * match. They are repeated here against this module's class.
+ *
+ * @see css/webform.form.tabs.css in the webform module
+ */
+
+.webform-composite-settings-tabs ul.webform-tabs-item-list {
+  margin: 0 0 1em 0;
+}
+
+.webform-composite-settings-tabs ul.webform-tabs-item-list li {
+  margin: 0 0.2em 0 0;
+}

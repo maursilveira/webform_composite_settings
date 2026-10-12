@@ -1,0 +1,8 @@
+services:
+  # Drupal 11.1+ registers #[Hook] classes as services by itself and leaves
+  # this definition alone when it finds one. Drupal 10 does not, and the
+  # .module shim resolves the class through the container, so it is declared
+  # here for as long as Drupal 10 is supported.
+  Drupal\webform_composite_settings\Hook\WebformCompositeSettingsHooks:
+    class: Drupal\webform_composite_settings\Hook\WebformCompositeSettingsHooks
+    autowire: true

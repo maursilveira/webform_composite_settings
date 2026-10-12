@@ -1,0 +1,70 @@
+/**
+ * @file
+ * Keeps the sub-element settings dialog inside the viewport.
+ *
+ * An element configuration form is tall enough to exceed the screen, and a
+ * jQuery UI dialog taller than the viewport is centred on it, which pushes its
+ * own title bar and close button off the top. Capping the dialog and scrolling
+ * the content instead keeps the header reachable.
+ */
+
+.webform-composite-settings-dialog.ui-dialog {
+  display: flex;
+  flex-direction: column;
+  max-width: 95vw;
+  max-height: 90vh;
+  /* Overrides the inline top that jQuery UI sets when it centres the dialog. */
+  top: 5vh !important;
+}
+
+.webform-composite-settings-dialog .ui-dialog-titlebar {
+  flex: 0 0 auto;
+}
+
+.webform-composite-settings-dialog .ui-dialog-content {
+  flex: 1 1 auto;
+  /* Drupal sets an inline max-height from the viewport; the flex row already
+     bounds the content, and keeping both fights the cap above. */
+  max-height: none !important;
+  overflow-y: auto;
+}
+
+.webform-composite-settings-dialog .ui-dialog-buttonpane {
+  flex: 0 0 auto;
+}
+
+/* Separates the link from the inputs stacked above it in the same cell. */
+.js-webform-multiple-table .form-item + .webform-composite-settings-link {
+  display: inline-block;
+  margin-top: 0.5em;
+}
+
+/*
+ * A row whose settings were changed in the dialog and not yet saved. The
+ * change only lives in the row's inputs until the element form is submitted.
+ *
+ * No colour is hard-coded, so the highlight follows whichever admin theme and
+ * colour scheme is active: the tint is mixed from the theme's own text colour,
+ * which is dark on a light scheme and light on a dark one, and the marker
+ * simply inherits the button's text colour. A theme that wants something more
+ * specific can set the custom properties.
+ */
+.webform-composite-settings-row--changed > td {
+  background-color: var(
+    --webform-composite-settings-changed-background,
+    color-mix(in srgb, currentColor 10%, transparent)
+  );
+}
+
+.webform-composite-settings-row-marker {
+  color: var(--webform-composite-settings-marker-color, currentColor);
+  font-weight: bold;
+}
+
+/* Forced-colours modes drop author backgrounds, so the row gets a border. */
+@media (forced-colors: active) {
+  .webform-composite-settings-row--changed > td {
+    border-top: 2px solid Highlight;
+    border-bottom: 2px solid Highlight;
+  }
+}

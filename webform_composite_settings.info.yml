@@ -1,0 +1,8 @@
+name: 'Webform Composite Settings'
+type: module
+description: 'Exposes the full element settings form for sub-elements inside Webform Custom composite elements, so site builders do not have to hand-edit YAML.'
+core_version_requirement: ^10.3 || ^11 || ^12
+package: Webform
+dependencies:
+  - webform:webform
+  - webform:webform_ui

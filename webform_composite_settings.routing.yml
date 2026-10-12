@@ -1,0 +1,18 @@
+# The route name intentionally sits in webform_ui's namespace: Webform decides
+# whether a page is a "webform admin route" by pattern matching the route name,
+# and that decision drives admin-only rendering such as moving long element
+# descriptions into help tooltips. A route named otherwise renders the same
+# markup with different styling.
+# @see \Drupal\webform\WebformRequest::isWebformAdminRoute()
+# @see _webform_preprocess_description_help()
+entity.webform_ui.element.composite_form:
+  path: '/admin/structure/webform/manage/{webform}/element/{key}/composite/{composite_key}'
+  defaults:
+    _form: '\Drupal\webform_composite_settings\Form\CompositeSubElementForm'
+    _title: 'Edit composite sub-element'
+  requirements:
+    _custom_access: '\Drupal\webform_ui\Access\WebformUiAccess::checkWebformEditAccess'
+  options:
+    parameters:
+      webform:
+        type: 'entity:webform'

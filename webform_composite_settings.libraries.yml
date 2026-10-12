@@ -1,0 +1,24 @@
+dialog:
+  version: 1.0.0
+  css:
+    theme:
+      css/composite-dialog.css: {}
+  js:
+    js/composite-dialog.js: {}
+  dependencies:
+    - core/drupal
+    - core/once
+    - core/drupal.dialog.ajax
+
+tabs:
+  version: 1.0.0
+  css:
+    theme:
+      css/composite-tabs.css: {}
+  js:
+    js/composite-tabs.js: {}
+  dependencies:
+    - core/drupal
+    - core/once
+    # Supplies Tabby itself, plus webform's tab styling.
+    - webform/webform.form.tabs
