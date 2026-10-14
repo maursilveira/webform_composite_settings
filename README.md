@@ -33,9 +33,10 @@ The modal does not save anything on its own. When you apply it, the values go ba
 - Every setting an element type supports, available on sub-elements without touching YAML.
 - Conditions and access rules on individual sub-elements. Webform already honours them inside composites; it just had no way to set them.
 - Edits that stay with the composite until you save it. Reopen a sub-element before saving and your pending changes are still there.
+- Settings on rows that are not saved yet. A sub-element just added to the table, or every sub-element of a composite you are still adding, can be configured before anything is saved.
 - A title typed in the table carries into the modal, and a title set in the modal comes back to the table.
 - The same alterations other modules make to the element form, including Webform Validation and Webform Simplify.
-- A plain, JavaScript-free fallback that saves the sub-element directly. The modal needs JavaScript. If it is unavailable, the button opens the settings form as a normal page, and saving that page writes the sub-element straight to the webform instead of staging it in the table.
+- A plain, JavaScript-free fallback that saves a saved sub-element directly. The modal needs JavaScript. If it is unavailable, the button opens the settings form as a normal page, and saving that page writes the sub-element straight to the webform instead of staging it in the table.
 - Support for Drupal 10.3, 11 and 12.
 
 ## Requirements
@@ -53,8 +54,9 @@ composer require drupal/webform_composite_settings
 drush en webform_composite_settings
 ```
 
-There is nothing to configure. Once the module is enabled, every saved row of a
-custom composite’s Elements table shows a “Sub-element settings” button.
+There is nothing to configure. Once the module is enabled, every row of a
+custom composite’s Elements table shows a “Sub-element settings” button,
+whether the composite is being added or edited.
 
 ## How it works
 
@@ -74,7 +76,8 @@ into the table:
 * Opening the modal sends the row’s current values along with the request, so
   it always starts from what is in the table, saved or not. Reopening a
   sub-element before saving therefore shows the earlier edit rather than
-  discarding it.
+  discarding it, and a row that has never been saved, or belongs to a
+  composite that is still being added, can be configured like any other.
 * Applying the modal closes it and writes the result back into the row’s
   inputs, then highlights the row and adds an asterisk to its button.
 * Staged changes are ordinary unsaved form state: reloading or leaving the page
@@ -88,7 +91,9 @@ into the table:
   callbacks among them) are stripped on the way in, on the way back to the
   row, and before the non-JavaScript fallback saves.
 * Without JavaScript there is no row to write to, so a plain submit saves the
-  webform directly and returns to the composite’s form.
+  webform directly and returns to the composite’s form. Only a saved
+  sub-element can be reached that way; an unsaved row has no values to send
+  without JavaScript.
 
 ### What the table shows
 
@@ -106,8 +111,9 @@ Every other property, including the custom properties YAML, stays in the row as
 a hidden input so it still posts back and survives a save of the composite. The
 custom properties field is hidden even for users with `edit webform source`.
 
-A row must be saved once before it can be configured; new rows show a prompt to
-save first.
+The button is disabled until the row has a key and a type, since the settings
+form is built for an element of that type under that key. Nothing has to be
+saved first.
 
 ### Settings groups
 
@@ -156,6 +162,26 @@ used.
   rendering such as collapsing long descriptions into help tooltips. Renaming
   the route changes the form’s layout. See
   `\Drupal\webform\WebformRequest::isWebformAdminRoute()`.
+* **Route keys.** Both the composite’s key and the sub-element’s key are
+  optional path parameters. A composite being added has no key yet, and a row
+  added to the table has none until it is typed, after the button was
+  rendered. The button carries whatever is known when the table is built, with
+  one restriction: a URL can only leave out optional parameters at its end, so
+  a row’s key is only put in the URL after the composite’s own, and the rows of
+  a composite being added are linked bare. The dialog takes the sub-element
+  key from the row values it is opened with whenever they carry one, since the
+  row may have been renamed after its link was built; the URL’s key only
+  counts without JavaScript, when no row is sent. The form starts from an
+  empty element when nothing is saved under that key. A URL with neither a
+  saved sub-element nor row values is a 404, and so is a row whose type is
+  not chosen yet; the button is disabled in the table until the key and type
+  are both filled.
+* **Rebuild on submit.** Core only serves a submitted form from the form cache
+  when it can; otherwise it builds the form again for the submit request, and
+  that request carries only the form’s own inputs. The row values the dialog
+  was opened with are therefore repeated inside the form as a hidden input
+  under the same request parameter name, so a rebuild on submit starts from
+  the same key and type as the first build did.
 * **Title in the table.** The title is the one row property that is both
   visible in the table and present in the modal. The modal seeds its Title
   field from the row and writes its result back into the same input, so the
@@ -178,13 +204,15 @@ used.
   scheme. Themes can override them through the
   `--webform-composite-settings-changed-background` and
   `--webform-composite-settings-marker-color` custom properties.
-* **Row keys.** A row’s key is whatever is typed into it, saved or not. A key
-  that appears in more than one row gets no settings button, since the rows
-  would otherwise claim the same saved sub-element.
+* **Row keys.** A row’s key is whatever is typed into it, saved or not. The
+  row is never identified by it: `js/composite-dialog.js` remembers which row
+  opened the dialog and writes the result back there, so a renamed or
+  duplicated key cannot send the result to the wrong row. Duplicates are
+  rejected by Webform when the composite is saved, as before.
 * **Row write-back.** `js/composite-dialog.js` finds the row by the
-  `data-webform-composite-settings-row` attribute and addresses each input by
-  its exact name, built from the `data-webform-composite-settings-row-name`
-  prefix; both attributes are set in
+  `data-webform-composite-settings-row` attribute, whose value is the name
+  prefix shared by every input in the row, and addresses each input by its
+  exact name built from that prefix. The attribute is set in
   `CompositeSubElementUi::addRowSettingsLinks()`. The custom properties and
   custom options inputs may be CodeMirror editors; the editor is updated too,
   otherwise it overwrites the textarea on submit.
@@ -207,9 +235,9 @@ used.
 | `webform_composite_settings.module` | Drupal 10 shim: `#[LegacyHook]` functions delegating to the hook class. |
 | `webform_composite_settings.services.yml` | Registers the hook class as a service for Drupal 10. |
 | `src/CompositeSubElementUi.php` | Alters the composite table (hidden inputs, title under the key, per-row button, row attribute), hides inapplicable groups, scopes the tabs. |
-| `src/Form/CompositeSubElementForm.php` | The modal form: builds the plugin’s form, seeds it from the row, stages the result, falls back to saving without JavaScript. |
-| `src/Ajax/StageCompositeRowCommand.php` | Ajax command carrying the result back to the row. |
-| `js/composite-dialog.js` | Opens the modal with the row’s values; applies the command to the row; marks the row. |
+| `src/Form/CompositeSubElementForm.php` | The modal form: resolves the keys from the URL or the row, builds the plugin’s form, seeds it from the row, carries the row for the submit rebuild, stages the result, falls back to saving without JavaScript. |
+| `src/Ajax/StageCompositeRowCommand.php` | Ajax command carrying the result back to the row that opened the modal. |
+| `js/composite-dialog.js` | Enables the button once the row has a key and a type; opens the modal with the row’s values; applies the command to the row that opened it; marks the row. |
 | `js/composite-tabs.js` | Initialises the dialog’s tabs. |
 | `css/composite-dialog.css` | Dialog sizing, row highlight and marker. |
 | `css/composite-tabs.css` | Webform’s tab spacing, repeated for the renamed wrapper. |
@@ -228,20 +256,24 @@ The kernel suite covers: the hook being registered once; staging instead of
 saving; seeding the form from a row’s unsaved values, including options; the
 non-JavaScript fallback; stored settings reaching the rendered submission form;
 the hidden and the deliberately visible settings groups; tab ids not colliding
-with the parent form; the table’s visible title and hidden inputs; the per-row links and the
-duplicate-key guard on them; and settings surviving a re-save of the composite.
+with the parent form; the table’s visible title and hidden inputs; the per-row
+links on saved rows, unsaved rows and the add form, including that their URLs
+generate; opening an unsaved row from its own values, with the row carried in
+the form for the submit rebuild; the 404 cases; and settings surviving a
+re-save of the composite.
 
 The browser layer (opening the modal, the write-back, CodeMirror updates, the
-row marker, dialog sizing) is not covered and needs a manual check after
-changes to the JavaScript or CSS.
+button’s disabled state, the row marker, dialog sizing) is not covered and needs a manual check after changes
+to the JavaScript or CSS.
 
 ## Known limitations
 
 * Title and options remain editable in the table as well as in the modal, for
   the reasons given above.
-* A row has to be saved before its settings can be opened, because the form is
-  built from the sub-element’s saved configuration rather than from the row’s
-  key and type.
+* Without JavaScript, only a saved sub-element can be opened: an unsaved row
+  has no way to send its key and type along with a plain link.
+* Changed-row marks and staged values are page state. Reloading or leaving the
+  page loses both, like any other unsaved edit in the table.
 * Sub-element `view` access rules are not enforced; that is Webform’s composite
   formatting, not something this module changes.
 * webform_simplify hides disabled tabs by matching their original fragment

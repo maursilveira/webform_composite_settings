@@ -10,7 +10,8 @@ use Drupal\Core\Ajax\CommandInterface;
  * Nothing is saved server side. The row's hidden inputs, options widget and
  * custom properties field are updated in the browser, so the values persist
  * when the composite element itself is saved, exactly as if they had been
- * typed into the table.
+ * typed into the table. The row is the one the dialog was opened from; the
+ * browser remembers which, so the command does not have to name it.
  *
  * @see js/composite-dialog.js
  */
@@ -19,8 +20,6 @@ class StageCompositeRowCommand implements CommandInterface {
   /**
    * Constructs a StageCompositeRowCommand.
    *
-   * @param string $key
-   *   The sub-element key identifying the row.
    * @param array $fields
    *   Values for the row's own inputs, keyed by input name.
    * @param array $options
@@ -30,7 +29,6 @@ class StageCompositeRowCommand implements CommandInterface {
    *   YAML for the row's custom properties field.
    */
   public function __construct(
-    protected string $key,
     protected array $fields,
     protected array $options,
     protected string $custom,
@@ -42,7 +40,6 @@ class StageCompositeRowCommand implements CommandInterface {
   public function render(): array {
     return [
       'command' => 'webformCompositeSettingsStageRow',
-      'key' => $this->key,
       'fields' => $this->fields,
       'options' => $this->options,
       'custom' => $this->custom,

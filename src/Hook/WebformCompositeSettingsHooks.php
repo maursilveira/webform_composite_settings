@@ -30,7 +30,7 @@ class WebformCompositeSettingsHooks {
       return NULL;
     }
     $output = '<h2>' . $this->t('About') . '</h2>';
-    $output .= '<p>' . $this->t('The Webform Composite Settings module exposes the full element settings form for the sub-elements of a Webform "Custom composite" element. Each saved row of the Elements table on a custom composite gets a <em>Sub-element settings</em> button that opens the settings form of that sub-element in a dialog, so settings that the table itself does not collect no longer have to be written as YAML.') . '</p>';
+    $output .= '<p>' . $this->t('The Webform Composite Settings module exposes the full element settings form for the sub-elements of a Webform "Custom composite" element. Each row of the Elements table on a custom composite gets a <em>Sub-element settings</em> button that opens the settings form of that sub-element in a dialog, so settings that the table itself does not collect no longer have to be written as YAML.') . '</p>';
     $output .= '<p>' . $this->t('The dialog does not save the webform. Its result is written back into the row and stored when the composite element itself is saved.') . '</p>';
     $output .= '<p>' . $this->t('For more information, see the <a href=":url">online documentation for the Webform Composite Settings module</a>.', [':url' => 'https://www.drupal.org/project/webform_composite_settings']) . '</p>';
     return $output;

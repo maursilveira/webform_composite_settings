@@ -33,14 +33,23 @@
   const OPTIONS_CUSTOM = '[options][custom][options]';
 
   /**
+   * The row whose dialog is open, or null.
+   *
+   * Only one modal is open at a time, so the row the dialog was opened from
+   * is where its result belongs. Remembering it here means the row needs no
+   * identity of its own: its key may be unsaved, or still being typed.
+   */
+  let activeCell = null;
+
+  /**
    * Returns the name every input in the row starts with.
    *
    * Set server side from the key input's name; the key input itself is the
    * fallback, being the one input whose position is fixed.
    */
   function rowName(cell) {
-    if (cell.dataset.webformCompositeSettingsRowName) {
-      return cell.dataset.webformCompositeSettingsRowName;
+    if (cell.dataset.webformCompositeSettingsRow) {
+      return cell.dataset.webformCompositeSettingsRow;
     }
     const key = cell.querySelector('input[name$="[key]"]');
     return key ? key.name.replace(/\[key\]$/, '') : null;
@@ -132,13 +141,52 @@
   }
 
   /**
+   * Returns the row inputs that have to be filled before the dialog can open.
+   *
+   * The settings form is built for an element of the row's type, under the
+   * row's key, so without either there is nothing to build. Both are inputs
+   * the table keeps visible, and either may be empty on a row just added.
+   */
+  function missing(cell) {
+    return ['[key]', '[type]']
+      .map(function (suffix) {
+        return input(cell, suffix);
+      })
+      .filter(function (element) {
+        return element && element.value.trim() === '';
+      });
+  }
+
+  /**
+   * Enables the row's button when the row can be configured, else disables it.
+   *
+   * A link cannot be disabled, so it is marked the way the admin themes style
+   * a disabled button and the click handler honours the mark.
+   */
+  function sync(link, cell) {
+    const disabled = missing(cell).length > 0;
+    link.classList.toggle('is-disabled', disabled);
+    if (disabled) {
+      link.setAttribute('aria-disabled', 'true');
+      link.title = Drupal.t('Enter a key and choose a type first.');
+    }
+    else if (link.querySelector('.webform-composite-settings-row-marker')) {
+      link.removeAttribute('aria-disabled');
+      link.title = Drupal.t('Changed. Save this element to keep it.');
+    }
+    else {
+      link.removeAttribute('aria-disabled');
+      link.removeAttribute('title');
+    }
+  }
+
+  /**
    * Flags a row as changed since the composite element was last saved.
    */
   function markChanged(cell) {
     (cell.closest('tr') || cell).classList.add(
       'webform-composite-settings-row--changed',
     );
-
     const link = cell.querySelector('.webform-composite-settings-link');
     if (!link || link.querySelector('.webform-composite-settings-row-marker')) {
       return;
@@ -166,9 +214,38 @@
         '.webform-composite-settings-link',
         context,
       ).forEach(function (link) {
+        const cell = link.closest('[data-webform-composite-settings-row]');
+        if (!cell) {
+          return;
+        }
+
+        const key = input(cell, '[key]');
+
+        // The key and type are typed after the table is built, so the button
+        // follows them as they change rather than the state they were
+        // rendered in.
+        sync(link, cell);
+        if (key) {
+          key.addEventListener('input', function () {
+            sync(link, cell);
+          });
+        }
+        const type = input(cell, '[type]');
+        if (type) {
+          type.addEventListener('input', function () {
+            sync(link, cell);
+          });
+        }
+
         link.addEventListener('click', function (event) {
           event.preventDefault();
-          const cell = link.closest('[data-webform-composite-settings-row]');
+
+          const empty = missing(cell);
+          if (empty.length) {
+            empty[0].focus();
+            return;
+          }
+          activeCell = cell;
 
           Drupal.ajax({
             url: link.href,
@@ -176,11 +253,11 @@
             dialog: JSON.parse(link.dataset.dialogOptions || '{}'),
             progress: { type: 'fullscreen' },
             // Sent as POST data, so the form seeds itself from the table
-            // rather than from the last saved configuration.
+            // rather than from the last saved configuration. The row's key
+            // travels with it, for rows whose link was built before they had
+            // one.
             submit: {
-              webform_composite_settings_staged: JSON.stringify(
-                cell ? readRow(cell) : {},
-              ),
+              webform_composite_settings_staged: JSON.stringify(readRow(cell)),
             },
           }).execute();
         });
@@ -189,18 +266,15 @@
   };
 
   /**
-   * Ajax command: writes dialog results back into the matching table row.
+   * Ajax command: writes dialog results back into the row that opened it.
    */
   Drupal.AjaxCommands.prototype.webformCompositeSettingsStageRow = function (
     ajax,
     response,
   ) {
-    const cell = document.querySelector(
-      '[data-webform-composite-settings-row="' +
-        CSS.escape(response.key) +
-        '"]',
-    );
-    if (!cell) {
+    const cell = activeCell;
+    activeCell = null;
+    if (!cell || !cell.isConnected) {
       return;
     }
 

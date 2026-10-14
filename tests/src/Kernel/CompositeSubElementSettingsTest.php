@@ -11,6 +11,7 @@ use Drupal\webform\Entity\Webform;
 use Drupal\webform_composite_settings\CompositeSubElementUi;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
  * Tests configuring custom composite sub-elements through their own form.
@@ -93,11 +94,13 @@ class CompositeSubElementSettingsTest extends EntityKernelTestBase {
    *   Whether to submit as the dialog would (TRUE) or as a plain page (FALSE).
    * @param array|null $row
    *   Row input values to send along, as the dialog's JavaScript would.
+   * @param string $parent_key
+   *   The composite element's key, or '' for one that is still being added.
    *
    * @return \Drupal\Core\Form\FormStateInterface
    *   The submitted form state.
    */
-  protected function submitSubElementForm($composite_key, array $values, $ajax = TRUE, ?array $row = NULL) {
+  protected function submitSubElementForm($composite_key, array $values, $ajax = TRUE, ?array $row = NULL, $parent_key = 'appointment') {
     if ($ajax) {
       \Drupal::request()->headers->set('X-Requested-With', 'XMLHttpRequest');
     }
@@ -120,7 +123,7 @@ class CompositeSubElementSettingsTest extends EntityKernelTestBase {
       '\Drupal\webform_composite_settings\Form\CompositeSubElementForm',
       $form_state,
       $this->webform,
-      'appointment',
+      $parent_key,
       $composite_key
     );
 
@@ -137,11 +140,13 @@ class CompositeSubElementSettingsTest extends EntityKernelTestBase {
    *   The sub-element key.
    * @param array|null $row
    *   Row input values to send along, as the dialog's JavaScript would.
+   * @param string $parent_key
+   *   The composite element's key, or '' for one that is still being added.
    *
    * @return array
    *   The built form.
    */
-  protected function buildSubElementForm($composite_key, ?array $row = NULL) {
+  protected function buildSubElementForm($composite_key, ?array $row = NULL, $parent_key = 'appointment') {
     if ($row === NULL) {
       \Drupal::request()->request->remove('webform_composite_settings_staged');
     }
@@ -152,7 +157,7 @@ class CompositeSubElementSettingsTest extends EntityKernelTestBase {
     return \Drupal::formBuilder()->getForm(
       '\Drupal\webform_composite_settings\Form\CompositeSubElementForm',
       $this->webform,
-      'appointment',
+      $parent_key,
       $composite_key
     );
   }
@@ -191,7 +196,6 @@ class CompositeSubElementSettingsTest extends EntityKernelTestBase {
     );
 
     $staged = $form_state->get('webform_composite_settings_staged_row');
-    $this->assertSame('when', $staged['key']);
 
     // What the table collects itself goes to its own inputs, with required
     // shaped for the hidden input that stands in for the checkbox.
@@ -555,7 +559,7 @@ class CompositeSubElementSettingsTest extends EntityKernelTestBase {
   }
 
   /**
-   * Tests that each saved row links to its own settings form.
+   * Tests that each row of a saved composite links to its own settings form.
    */
   public function testRowsLinkToTheSettingsForm(): void {
     $form = \Drupal::formBuilder()->getForm(
@@ -581,8 +585,13 @@ class CompositeSubElementSettingsTest extends EntityKernelTestBase {
       $this->assertSame('entity.webform_ui.element.composite_form', $link['#url']->getRouteName());
 
       // The dialog is opened by the module's own handler, which needs to find
-      // the row again to read from and write back to it.
-      $this->assertSame($key, $cell['#attributes']['data-webform-composite-settings-row']);
+      // the row again to read from and write back to it. The row is marked
+      // with the name its inputs share, which unlike the key never changes.
+      $this->assertSame(
+        preg_replace('/\\[key\\]$/', '', $cell['key']['#name']),
+        $cell['#attributes']['data-webform-composite-settings-row']
+      );
+      $this->assertStringEndsWith("[items][$delta]", $cell['#attributes']['data-webform-composite-settings-row']);
       $this->assertNotContains('use-ajax', $link['#attributes']['class']);
     }
 
@@ -591,20 +600,20 @@ class CompositeSubElementSettingsTest extends EntityKernelTestBase {
   }
 
   /**
-   * Tests that a key typed into two rows gets a settings link in neither.
+   * Tests that rows get a settings link whether or not they are saved.
    *
-   * On an Ajax rebuild of the table a row's key is whatever the user typed, so
-   * a saved key retyped into a second row would otherwise open that saved
-   * sub-element's settings from the wrong row and write the result back to
-   * whichever row the browser finds first.
+   * The link carries what is known when the table is built: the composite's
+   * key once it has one, and the row's key once it is typed. A row added over
+   * Ajax has no key yet and a composite being added has none at all, so those
+   * parts are left out of the URL for the dialog to fill in from the row.
    */
-  public function testDuplicateRowKeysGetNoSettingsLink(): void {
-    $row = function (string $key) {
+  public function testUnsavedRowsGetSettingsLinks(): void {
+    $row = function (int $delta, string $key) {
       return [
         'settings' => [
           'key' => [
             '#type' => 'textfield',
-            '#name' => "properties[composite][element][elements][items][$key][settings][key]",
+            '#name' => "properties[element][elements][items][$delta][key]",
             '#value' => $key,
           ],
         ],
@@ -614,25 +623,160 @@ class CompositeSubElementSettingsTest extends EntityKernelTestBase {
       '#webform_composite_settings_context' => [
         'webform' => $this->webform->id(),
         'key' => 'appointment',
-        'saved_keys' => ['when', 'note', 'choice'],
       ],
       'elements' => [
-        'items' => [$row('when'), $row('note'), $row('when')],
+        'items' => [$row(0, 'when'), $row(1, 'extra'), $row(2, '')],
       ],
     ];
 
     $items = CompositeSubElementUi::addRowSettingsLinks($element, new FormState())['elements']['items'];
 
-    // The unique saved key is linked as usual.
-    $this->assertSame('link', $items[1]['settings']['webform_composite_settings_link']['#type']);
-    $this->assertSame('note', $items[1]['settings']['#attributes']['data-webform-composite-settings-row']);
-
-    // Both rows claiming 'when' get the save-first notice and no row marker,
-    // so the dialog's JavaScript has nothing to read from or write to.
-    foreach ([0, 2] as $delta) {
-      $this->assertSame('html_tag', $items[$delta]['settings']['webform_composite_settings_link']['#type'], "Row $delta");
-      $this->assertArrayNotHasKey('#attributes', $items[$delta]['settings'], "Row $delta");
+    foreach ([0, 1, 2] as $delta) {
+      $this->assertSame('link', $items[$delta]['settings']['webform_composite_settings_link']['#type'], "Row $delta");
     }
+    $parameters = function (int $delta) use (&$items) {
+      return $items[$delta]['settings']['webform_composite_settings_link']['#url']->getRouteParameters();
+    };
+    // Saved and unsaved keys alike go in the URL; only an empty one does not.
+    $this->assertSame('when', $parameters(0)['composite_key']);
+    $this->assertSame('extra', $parameters(1)['composite_key']);
+    $this->assertArrayNotHasKey('composite_key', $parameters(2));
+    $this->assertSame('appointment', $parameters(2)['key']);
+    $this->assertSame(
+      'properties[element][elements][items][2]',
+      $items[2]['settings']['#attributes']['data-webform-composite-settings-row']
+    );
+
+    // A composite being added has no key, and the row's key cannot follow a
+    // missing one in the URL, so its rows are linked bare whether they have a
+    // key or not. Generating the URL is what fails otherwise.
+    $element['#webform_composite_settings_context']['key'] = NULL;
+    $items = CompositeSubElementUi::addRowSettingsLinks($element, new FormState())['elements']['items'];
+    foreach ([0, 1, 2] as $delta) {
+      $this->assertSame(['webform' => $this->webform->id()], $parameters($delta), "Row $delta");
+    }
+    \Drupal::service('router.builder')->rebuild();
+    $this->assertStringEndsWith('/composite-sub-element', $items[0]['settings']['webform_composite_settings_link']['#url']->toString());
+  }
+
+  /**
+   * Tests that the add form's table gets the settings links as well.
+   *
+   * The composite has no key while it is being added, which used to leave its
+   * rows with no way to open the dialog at all.
+   */
+  public function testAddFormRowsLinkToTheSettingsForm(): void {
+    $form = \Drupal::formBuilder()->getForm(
+      '\Drupal\webform_ui\Form\WebformUiElementAddForm',
+      $this->webform,
+      NULL,
+      NULL,
+      'webform_custom_composite'
+    );
+    $items = $form['properties']['composite']['element']['elements']['items'];
+    $this->assertNotEmpty(Element::children($items));
+
+    foreach (Element::children($items) as $delta) {
+      $link = $items[$delta]['settings']['webform_composite_settings_link'];
+      $this->assertSame('link', $link['#type'], "Row $delta");
+      $this->assertSame(
+        ['webform' => $this->webform->id()],
+        $link['#url']->getRouteParameters(),
+        "Row $delta"
+      );
+    }
+  }
+
+  /**
+   * Tests that a row that was never saved opens from its own values.
+   *
+   * Whether the composite is saved without that row or not saved at all, the
+   * dialog has nothing in configuration to start from, so the row has to be
+   * all it needs: its key, when the URL has none, and its type.
+   */
+  public function testUnsavedRowOpensFromItsOwnValues(): void {
+    $row = [
+      'key' => 'extra',
+      'type' => 'date',
+      'title' => 'Extra',
+      'custom' => "date_date_max: '2031-01-01'",
+    ];
+
+    // A new row in a saved composite, linked before its key was typed.
+    $form = $this->buildSubElementForm('', $row);
+    $this->assertSame('Extra', $this->findInput($form, 'title')['#default_value']);
+    $this->assertSame('2031-01-01', $this->findInput($form, 'date_date_max')['#default_value']);
+
+    // The submit request carries only the form's inputs and may have to build
+    // the form again, so the row has to post back with it under the name the
+    // dialog sent it as. Without that, the rebuild has no key and no type.
+    $this->assertSame('hidden', $form['webform_composite_settings_staged']['#type']);
+    $this->assertSame($row, Json::decode($form['webform_composite_settings_staged']['#value']));
+
+    // A row of a composite that is still being added.
+    $form = $this->buildSubElementForm('', $row, '');
+    $this->assertSame('Extra', $this->findInput($form, 'title')['#default_value']);
+    $this->assertSame('2031-01-01', $this->findInput($form, 'date_date_max')['#default_value']);
+
+    // Applying stages the result the same way as for a saved row.
+    $form_state = $this->submitSubElementForm('', ['title' => 'Extra', 'date_date_max' => '2032-01-01'], TRUE, $row, '');
+    $this->assertEmpty($form_state->getErrors());
+    $staged = $form_state->get('webform_composite_settings_staged_row');
+    $this->assertSame('Extra', $staged['fields']['title']);
+    $this->assertSame('2032-01-01', Yaml::decode($staged['custom'])['date_date_max']);
+    $this->assertArrayNotHasKey('extra', $this->webform->getElementDecoded('appointment')['#element']);
+  }
+
+  /**
+   * Tests that the key the row holds wins over the one in the URL.
+   *
+   * The link is built with the key the row had when the table was built, and
+   * the row may have been renamed since. The URL's key is only what is left
+   * without JavaScript, when no row is sent at all.
+   */
+  public function testRowKeyWinsOverUrlKey(): void {
+    $row = ['key' => 'when_renamed', 'type' => 'date', 'title' => 'When'];
+
+    // Applied as the dialog would, the result is staged for the row, and the
+    // form reports the row's key as its own.
+    $form_state = $this->submitSubElementForm('when', ['title' => 'When'], TRUE, $row);
+    $this->assertEmpty($form_state->getErrors());
+    $this->assertSame('when_renamed', $form_state->getFormObject()->getKey());
+
+    // Without a row, the URL's key is all there is.
+    $form = $this->buildSubElementForm('when');
+    $this->assertSame('When', $this->findInput($form, 'title')['#default_value']);
+  }
+
+  /**
+   * Tests that a visit with nothing to configure is a 404.
+   *
+   * A plain visit sends no row values, so an unsaved key has nothing behind
+   * it; and a row that has not chosen a type yet cannot have a form built.
+   */
+  public function testNothingToConfigureIsNotFound(): void {
+    $not_found = 0;
+    $attempts = [
+      // An unsaved key with no row values.
+      ['nope', NULL, 'appointment'],
+      // No key anywhere.
+      ['', ['type' => 'date'], 'appointment'],
+      // A key that is not one Webform would accept.
+      ['', ['key' => 'Not A Key', 'type' => 'date'], 'appointment'],
+      // A row with no type yet.
+      ['', ['key' => 'extra', 'type' => ''], ''],
+      // A composite key that is not a custom composite.
+      ['when', NULL, 'missing'],
+    ];
+    foreach ($attempts as [$composite_key, $row, $parent_key]) {
+      try {
+        $this->buildSubElementForm($composite_key, $row, $parent_key);
+      }
+      catch (NotFoundHttpException) {
+        $not_found++;
+      }
+    }
+    $this->assertSame(count($attempts), $not_found);
   }
 
   /**

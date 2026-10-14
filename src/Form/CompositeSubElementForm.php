@@ -38,8 +38,11 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * The form does not save the webform. It is opened from the composite element's
  * own form, seeded with that row's current values (saved or not), and on submit
  * writes its result back into the row, where it is persisted along with the
- * composite when that form is saved. Without JavaScript there is no row to
- * write to, so a plain submit saves the webform directly instead.
+ * composite when that form is saved. That is also what lets a row that has
+ * never been saved, or a composite that is still being added, be configured:
+ * the row's values are all the form needs. Without JavaScript there is no row
+ * to write to, so a plain submit saves the webform directly instead, which
+ * only a saved sub-element can be reached for.
  *
  * Element plugins reach back to the form object for context, so this implements
  * the same interface webform_ui's element forms do.
@@ -133,29 +136,71 @@ class CompositeSubElementForm extends FormBase implements BaseFormIdInterface, W
   /**
    * {@inheritdoc}
    */
-  public function buildForm(array $form, FormStateInterface $form_state, ?WebformInterface $webform = NULL, $key = NULL, $composite_key = NULL): array {
-    $parent_element = $webform ? $webform->getElementDecoded($key) : NULL;
-    if (!$parent_element
-      || ($parent_element['#type'] ?? NULL) !== 'webform_custom_composite'
-      || !isset($parent_element['#element'][$composite_key])) {
+  public function buildForm(array $form, FormStateInterface $form_state, ?WebformInterface $webform = NULL, $key = '', $composite_key = ''): array {
+    if (!$webform) {
+      throw new NotFoundHttpException();
+    }
+
+    // The row's unsaved values arrive with the request that opens the dialog,
+    // which is what lets a second opening before the composite is saved start
+    // from those values rather than from configuration, and what lets a row
+    // that was never saved be configured at all.
+    $staged = $this->getRequest()->request->get('webform_composite_settings_staged');
+    $staged = is_string($staged) ? Json::decode($staged) : NULL;
+    $staged = is_array($staged) ? $staged : [];
+
+    // The request that submits the dialog carries only the form's own inputs,
+    // and the form is built again for that request whenever the form cache
+    // cannot serve it. The row therefore travels in the form as well, under
+    // the same name, so a rebuild from scratch starts from the same element
+    // as the first build did: the same key, when the URL has none, and the
+    // same type.
+    $form['webform_composite_settings_staged'] = [
+      '#type' => 'hidden',
+      '#value' => Json::encode($staged),
+    ];
+
+    // A composite that is still being added has no key, and nothing saved
+    // under it; one that has a key must be a custom composite.
+    $parent_element = NULL;
+    if ($key !== '' && $key !== NULL) {
+      $parent_element = $webform->getElementDecoded($key);
+      if (!$parent_element || ($parent_element['#type'] ?? NULL) !== 'webform_custom_composite') {
+        throw new NotFoundHttpException();
+      }
+    }
+
+    // The row's key is whatever it holds when the dialog opens, and that wins
+    // over the URL: the link was built with the key the row had at the time,
+    // which may since have been typed in or changed. The URL's key is what is
+    // left without JavaScript, when no row is sent. Either is only trusted in
+    // the shape Webform itself demands.
+    // @see \Drupal\webform\Element\WebformElementComposite::processWebformElementComposite()
+    if (!empty($staged['key'])) {
+      $composite_key = $staged['key'];
+    }
+    if (!is_string($composite_key) || !preg_match('/^[a-z0-9_]+$/', $composite_key)) {
       throw new NotFoundHttpException();
     }
 
     $this->webform = $webform;
-    $this->compositeElementKey = $key;
+    $this->compositeElementKey = (string) $key;
     $this->subElementKey = $composite_key;
 
-    // The row's unsaved values arrive with the request that opens the dialog,
-    // which is what lets a second opening before the composite is saved start
-    // from those values rather than from configuration. The result is kept in
-    // the form state so the rebuild on submit sees the same element.
+    // The result is kept in the form state so the rebuild on submit sees the
+    // same element. A sub-element that is neither saved nor described by the
+    // row has nothing to build a form from, and neither has one whose type is
+    // not known yet.
     if (!$form_state->has('webform_composite_settings_sub_element')) {
-      $staged = $this->getRequest()->request->get('webform_composite_settings_staged');
-      $staged = is_string($staged) ? Json::decode($staged) : NULL;
-      $form_state->set('webform_composite_settings_sub_element', $this->applyStagedRow(
-        $parent_element['#element'][$composite_key],
-        is_array($staged) ? $staged : []
-      ));
+      $saved = $parent_element['#element'][$composite_key] ?? NULL;
+      if ($saved === NULL && !$staged) {
+        throw new NotFoundHttpException();
+      }
+      $sub_element = $this->applyStagedRow($saved ?? [], $staged);
+      if (empty($sub_element['#type'])) {
+        throw new NotFoundHttpException();
+      }
+      $form_state->set('webform_composite_settings_sub_element', $sub_element);
     }
     $this->subElement = $form_state->get('webform_composite_settings_sub_element');
 
@@ -170,7 +215,7 @@ class CompositeSubElementForm extends FormBase implements BaseFormIdInterface, W
     CompositeSubElementUi::filterSettingsGroups($form['properties']);
     // Runs after the groups are hidden, so that tabs left with nothing visible
     // in them are dropped rather than rendered empty.
-    CompositeSubElementUi::scopeTabs($form['properties'], $key . '-' . $composite_key);
+    CompositeSubElementUi::scopeTabs($form['properties'], implode('-', array_filter([$key, $composite_key])));
 
     // Element plugins lay some settings out side by side using classes that
     // only webform_ui styles, so without its library those inputs stack.
@@ -225,9 +270,21 @@ class CompositeSubElementForm extends FormBase implements BaseFormIdInterface, W
 
     // Without JavaScript there is no row to hand the result to, so fall back
     // to saving the webform directly and returning to the composite's form.
+    // That needs a saved composite to write into; a plain visit cannot reach
+    // the form for an unsaved one, but a submit must not try anyway.
+    $parent_element = $this->compositeElementKey !== ''
+      ? $this->webform->getElementDecoded($this->compositeElementKey)
+      : NULL;
+    if (!$parent_element) {
+      $this->messenger()->addError($this->t('The composite element has to be saved before its sub-elements can be saved on their own.'));
+      // Shown again rather than redirected to, since the bare URL a GET would
+      // land on has no row values and nothing to show.
+      $form_state->setRebuild();
+      return;
+    }
+
     // This path skips webform_ui's elements validator, so strip what it would
     // have rejected rather than rely on the runtime strip alone.
-    $parent_element = $this->webform->getElementDecoded($this->compositeElementKey);
     $parent_element['#element'][$this->subElementKey] = WebformElementHelper::removeIgnoredProperties($properties);
     $this->webform->setElementProperties($this->compositeElementKey, $parent_element);
     $this->webform->save();
@@ -251,7 +308,7 @@ class CompositeSubElementForm extends FormBase implements BaseFormIdInterface, W
 
     $staged = $form_state->get('webform_composite_settings_staged_row');
     $response->addCommand(new CloseModalDialogCommand());
-    $response->addCommand(new StageCompositeRowCommand($staged['key'], $staged['fields'], $staged['options'], $staged['custom']));
+    $response->addCommand(new StageCompositeRowCommand($staged['fields'], $staged['options'], $staged['custom']));
 
     return $response;
   }
@@ -353,9 +410,9 @@ class CompositeSubElementForm extends FormBase implements BaseFormIdInterface, W
    *   defaults already stripped.
    *
    * @return array
-   *   An array with the row 'key', its 'fields' keyed by input name, the
-   *   'options' for the options widget ('select' and 'custom'), and the
-   *   'custom' properties YAML.
+   *   An array with the row's 'fields' keyed by input name, the 'options' for
+   *   the options widget ('select' and 'custom'), and the 'custom' properties
+   *   YAML.
    */
   protected function buildStagedRow(array $properties): array {
     // Anything Webform would refuse to store must not be handed to the row.
@@ -383,7 +440,6 @@ class CompositeSubElementForm extends FormBase implements BaseFormIdInterface, W
     $custom = array_diff_key($properties, array_flip(CompositeSubElementUi::ROW_PROPERTIES), array_flip(self::TABLE_OWNED));
 
     return [
-      'key' => $this->subElementKey,
       'fields' => $fields,
       'options' => $options,
       'custom' => $custom ? WebformYaml::encode($custom) : '',

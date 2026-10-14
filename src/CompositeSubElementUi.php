@@ -151,16 +151,15 @@ class CompositeSubElementUi {
 
     // The rows do not exist yet: WebformMultiple clones this single definition
     // once per row while processing. The settings link is per row, so it has to
-    // wait until those rows carry their own keys.
+    // wait until those rows carry their own names.
     $form_object = $form_state->getFormObject();
     if ($form_object instanceof WebformUiElementFormInterface
-      && $form_object->getWebform()
-      && $form_object->getKey()) {
-      $parent_element = $form_object->getElement();
+      && $form_object->getWebform()) {
       $element['#webform_composite_settings_context'] = [
         'webform' => $form_object->getWebform()->id(),
-        'key' => $form_object->getKey(),
-        'saved_keys' => array_keys($parent_element['#element'] ?? []),
+        // NULL while the composite is being added: it has no key until it is
+        // saved, and nothing saved for the dialog to look up either way.
+        'key' => $form_object->getKey() ?: NULL,
       ];
       $element['#after_build'][] = [static::class, 'addRowSettingsLinks'];
       $element['#attached']['library'][] = 'webform_composite_settings/dialog';
@@ -170,23 +169,19 @@ class CompositeSubElementUi {
   }
 
   /**
-   * After build: adds a settings link to each saved row of the table.
+   * After build: adds a settings link to each row of the table.
+   *
+   * Every row gets one, saved or not: the dialog is opened with the row's
+   * current values, so a row that was never saved has as much to configure as
+   * one that was. What differs is only how much of the URL can be built here.
+   * A row's key is whatever is typed into it when the table is built, so the
+   * link carries it when there is one; a row added since then is linked
+   * without it, and the dialog reads the key from the row when it is opened.
    */
   public static function addRowSettingsLinks(array $element, FormStateInterface $form_state) {
     $context = $element['#webform_composite_settings_context'] ?? NULL;
     if (!$context || !isset($element['elements']['items'])) {
       return $element;
-    }
-
-    // A row's key is whatever the user has typed, saved or not. A key that is
-    // typed into a second row would make both rows claim the same saved
-    // sub-element, so a key is only trusted while it is unique in the table.
-    $key_counts = [];
-    foreach (Element::children($element['elements']['items']) as $delta) {
-      $key = static::rowKey($element['elements']['items'][$delta]);
-      if ($key !== NULL) {
-        $key_counts[$key] = ($key_counts[$key] ?? 0) + 1;
-      }
     }
 
     foreach (Element::children($element['elements']['items']) as $delta) {
@@ -196,44 +191,33 @@ class CompositeSubElementUi {
       }
       $cell = &$element['elements']['items'][$delta]['settings'];
 
-      $key = static::rowKey($element['elements']['items'][$delta]);
-      if ($key === NULL) {
-        continue;
-      }
-
-      if (!in_array($key, $context['saved_keys'], TRUE) || $key_counts[$key] > 1) {
-        // A row that has never been saved has nothing to configure yet, and
-        // neither has a row whose key is also typed into another row: the
-        // composite cannot be saved like that, so it is told to save first.
-        // The notice is shared with the saved-key case because the save that
-        // follows is what reports the duplicate.
-        $cell['webform_composite_settings_link'] = [
-          '#type' => 'html_tag',
-          '#tag' => 'em',
-          '#value' => t('Save to configure settings'),
-          '#weight' => 100,
-        ];
-        continue;
-      }
-
       // Lets the dialog's JavaScript find this row to read its current values
-      // from and to write its results back to. The name prefix lets it address
-      // each input by its exact name rather than by a suffix that some other
-      // input might one day share.
+      // from and to write its results back to. The value is the name every
+      // input in the row starts with, so each one can be addressed by its
+      // exact name rather than by a suffix that some other input might one day
+      // share. Unlike the key, it is fixed for the life of the row.
       // @see js/composite-dialog.js
-      $cell['#attributes']['data-webform-composite-settings-row'] = $key;
-      $cell['#attributes']['data-webform-composite-settings-row-name'] = preg_replace('/\[key\]$/', '', $cell['key']['#name'] ?? '');
+      $cell['#attributes']['data-webform-composite-settings-row'] = preg_replace('/\[key\]$/', '', $cell['key']['#name'] ?? '');
+
+      // The row's key only goes in the URL after the composite's own: both are
+      // optional path parameters, and a URL cannot skip the first of them. A
+      // composite being added has no key, so its rows are linked bare and the
+      // dialog takes their keys from the row values it is opened with.
+      $route_parameters = ['webform' => $context['webform']];
+      $key = static::rowKey($element['elements']['items'][$delta]);
+      if ($context['key'] !== NULL) {
+        $route_parameters['key'] = $context['key'];
+        if ($key !== NULL) {
+          $route_parameters['composite_key'] = $key;
+        }
+      }
 
       // Deliberately not a 'use-ajax' link: the module's own handler opens the
       // dialog so it can send the row's unsaved values along with the request.
       $cell['webform_composite_settings_link'] = [
         '#type' => 'link',
         '#title' => t('Sub-element settings'),
-        '#url' => Url::fromRoute('entity.webform_ui.element.composite_form', [
-          'webform' => $context['webform'],
-          'key' => $context['key'],
-          'composite_key' => $key,
-        ]),
+        '#url' => Url::fromRoute('entity.webform_ui.element.composite_form', $route_parameters),
         '#attributes' => [
           'class' => [
             'button',

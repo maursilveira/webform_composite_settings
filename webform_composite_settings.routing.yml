@@ -5,11 +5,20 @@
 # markup with different styling.
 # @see \Drupal\webform\WebformRequest::isWebformAdminRoute()
 # @see _webform_preprocess_description_help()
+#
+# Both keys are optional because the dialog is also opened from rows that are
+# not saved yet. A composite being added has no key of its own, and a row whose
+# key is still being typed cannot be linked by it; the dialog then takes the
+# row's key from the values it is opened with. Only a saved sub-element has a
+# complete URL, which is what makes it reachable without JavaScript.
+# @see \Drupal\webform_composite_settings\Form\CompositeSubElementForm::buildForm()
 entity.webform_ui.element.composite_form:
-  path: '/admin/structure/webform/manage/{webform}/element/{key}/composite/{composite_key}'
+  path: '/admin/structure/webform/manage/{webform}/composite-sub-element/{key}/{composite_key}'
   defaults:
     _form: '\Drupal\webform_composite_settings\Form\CompositeSubElementForm'
     _title: 'Edit composite sub-element'
+    key: ''
+    composite_key: ''
   requirements:
     _custom_access: '\Drupal\webform_ui\Access\WebformUiAccess::checkWebformEditAccess'
   options:
