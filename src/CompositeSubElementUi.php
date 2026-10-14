@@ -21,22 +21,38 @@ use Drupal\webform_ui\Form\WebformUiElementFormInterface;
 class CompositeSubElementUi {
 
   /**
-   * Table properties now owned by the sub-element settings form.
+   * Sub-element properties the table holds in inputs of its own.
    *
-   * These stay in the table as hidden inputs rather than being removed, so
-   * their stored values survive a save of the composite. 'key', 'type' and
-   * 'options' deliberately remain editable: they define the structure of the
-   * composite, and Webform rejects a composite whose options-bearing
-   * sub-element has no options before the settings form is ever reachable.
+   * The settings form reads these from the row when it opens and writes its
+   * result back into them, so the row and the form never disagree. Its
+   * JavaScript relies on this same list.
    *
-   * The settings form and its JavaScript rely on this same list.
-   *
-   * @see \Drupal\webform\Element\WebformElementComposite::validateWebformElementComposite()
    * @see \Drupal\webform_composite_settings\Form\CompositeSubElementForm
    * @see js/composite-dialog.js
    */
-  public const TABLE_PROPERTIES_MOVED = [
+  public const ROW_PROPERTIES = [
     'title',
+    'placeholder',
+    'description',
+    'help',
+    'required',
+  ];
+
+  /**
+   * Row properties the settings form owns outright.
+   *
+   * These stay in the table as hidden inputs rather than being removed, so
+   * their stored values survive a save of the composite. The others remain
+   * editable in the table: 'key' and 'type' define the structure of the
+   * composite; 'options' because Webform rejects a composite whose
+   * options-bearing sub-element has no options before the settings form is
+   * ever reachable; and 'title' because Webform requires one of every
+   * sub-element, it is the label the table is read by, and it is the one
+   * setting worth typing without opening the form.
+   *
+   * @see \Drupal\webform\Element\WebformElementComposite::validateWebformElementComposite()
+   */
+  public const ROW_PROPERTIES_HIDDEN = [
     'placeholder',
     'description',
     'help',
@@ -100,7 +116,7 @@ class CompositeSubElementUi {
     // a 'hidden' element round trips correctly.
     // @see \Drupal\webform\Element\WebformElementComposite::processWebformElementComposite()
     foreach (['settings', 'labels'] as $group) {
-      foreach (static::TABLE_PROPERTIES_MOVED as $property) {
+      foreach (static::ROW_PROPERTIES_HIDDEN as $property) {
         if (isset($columns[$group][$property])) {
           $columns[$group][$property] = ['#type' => 'hidden'];
         }
@@ -126,7 +142,12 @@ class CompositeSubElementUi {
       unset($columns['labels']);
     }
 
-    $element['#element_validate'][] = [static::class, 'validateCompositeTable'];
+    // The title is the one visible input folded in, and it reads best right
+    // under the key it labels rather than after the options widget.
+    if (isset($columns['settings']['key'], $columns['settings']['title'])) {
+      $columns['settings']['key']['#weight'] = -10;
+      $columns['settings']['title']['#weight'] = -9;
+    }
 
     // The rows do not exist yet: WebformMultiple clones this single definition
     // once per row while processing. The settings link is per row, so it has to
@@ -246,28 +267,6 @@ class CompositeSubElementUi {
     }
     $key = $row['settings']['key']['#value'] ?? $row['settings']['key']['#default_value'] ?? NULL;
     return is_string($key) && $key !== '' ? $key : NULL;
-  }
-
-  /**
-   * Gives new sub-elements a title, since the table no longer collects one.
-   */
-  public static function validateCompositeTable(array &$element, FormStateInterface $form_state, array &$complete_form) {
-    $elements = NestedArray::getValue($form_state->getValues(), $element['#parents']);
-    if (!is_array($elements)) {
-      return;
-    }
-
-    $changed = FALSE;
-    foreach ($elements as $composite_key => $sub_element) {
-      if (empty($sub_element['#title'])) {
-        $elements[$composite_key]['#title'] = ucfirst(str_replace('_', ' ', $composite_key));
-        $changed = TRUE;
-      }
-    }
-
-    if ($changed) {
-      $form_state->setValueForElement($element, $elements);
-    }
   }
 
   /**

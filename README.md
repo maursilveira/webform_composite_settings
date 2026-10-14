@@ -33,6 +33,7 @@ The modal does not save anything on its own. When you apply it, the values go ba
 - Every setting an element type supports, available on sub-elements without touching YAML.
 - Conditions and access rules on individual sub-elements. Webform already honours them inside composites; it just had no way to set them.
 - Edits that stay with the composite until you save it. Reopen a sub-element before saving and your pending changes are still there.
+- A title typed in the table carries into the modal, and a title set in the modal comes back to the table.
 - The same alterations other modules make to the element form, including Webform Validation and Webform Simplify.
 - A plain, JavaScript-free fallback that saves the sub-element directly. The modal needs JavaScript. If it is unavailable, the button opens the settings form as a normal page, and saving that page writes the sub-element straight to the webform instead of staging it in the table.
 - Support for Drupal 10.3, 11 and 12.
@@ -91,12 +92,15 @@ into the table:
 
 ### What the table shows
 
-The modal is the one place to edit a sub-element’s settings. The table keeps
-only key, type and options visible, plus the button. Key and type define the
-structure of the composite; options stay because Webform rejects an
-options-bearing sub-element with no options before the button would ever be
-reachable. Options are also editable in the modal, which writes them back into
-the table’s widget (the predefined-set select, or the custom YAML beside it).
+The table keeps key, title, type and options visible, plus the button. Key
+and type define the structure of the composite. Title stays because Webform
+requires one of every sub-element and it is what the rows are read by, so it
+can be typed without opening the modal; the modal starts from whatever the row
+holds and writes its own title back into the row. Options stay because Webform
+rejects an options-bearing sub-element with no options before the button would
+ever be reachable; they are also editable in the modal, which writes them back
+into the table’s widget (the predefined-set select, or the custom YAML beside
+it).
 
 Every other property, including the custom properties YAML, stays in the row as
 a hidden input so it still posts back and survives a save of the composite. The
@@ -152,6 +156,11 @@ used.
   rendering such as collapsing long descriptions into help tooltips. Renaming
   the route changes the form’s layout. See
   `\Drupal\webform\WebformRequest::isWebformAdminRoute()`.
+* **Title in the table.** The title is the one row property that is both
+  visible in the table and present in the modal. The modal seeds its Title
+  field from the row and writes its result back into the same input, so the
+  two never diverge. Webform’s own required validation on the table’s title
+  applies; the module no longer derives a title from the key.
 * **Tabs.** Webform’s tab panes use fixed ids (`webform-tab--general` and so
   on) and its Tabby initialiser uses a document-wide selector, so tabs inside
   the dialog would bind to the element form behind it and stop working.
@@ -197,7 +206,7 @@ used.
 | `src/Hook/WebformCompositeSettingsHooks.php` | Hook implementations: `hook_help()`, and `hook_element_info_alter()` adding the table process callback. |
 | `webform_composite_settings.module` | Drupal 10 shim: `#[LegacyHook]` functions delegating to the hook class. |
 | `webform_composite_settings.services.yml` | Registers the hook class as a service for Drupal 10. |
-| `src/CompositeSubElementUi.php` | Alters the composite table (hidden inputs, per-row button, row attribute), hides inapplicable groups, scopes the tabs. |
+| `src/CompositeSubElementUi.php` | Alters the composite table (hidden inputs, title under the key, per-row button, row attribute), hides inapplicable groups, scopes the tabs. |
 | `src/Form/CompositeSubElementForm.php` | The modal form: builds the plugin’s form, seeds it from the row, stages the result, falls back to saving without JavaScript. |
 | `src/Ajax/StageCompositeRowCommand.php` | Ajax command carrying the result back to the row. |
 | `js/composite-dialog.js` | Opens the modal with the row’s values; applies the command to the row; marks the row. |
@@ -219,7 +228,7 @@ The kernel suite covers: the hook being registered once; staging instead of
 saving; seeding the form from a row’s unsaved values, including options; the
 non-JavaScript fallback; stored settings reaching the rendered submission form;
 the hidden and the deliberately visible settings groups; tab ids not colliding
-with the parent form; the table’s hidden inputs; the per-row links and the
+with the parent form; the table’s visible title and hidden inputs; the per-row links and the
 duplicate-key guard on them; and settings surviving a re-save of the composite.
 
 The browser layer (opening the modal, the write-back, CodeMirror updates, the
@@ -228,8 +237,8 @@ changes to the JavaScript or CSS.
 
 ## Known limitations
 
-* Options remain editable in the table as well as in the modal, for the reason
-  given above.
+* Title and options remain editable in the table as well as in the modal, for
+  the reasons given above.
 * A row has to be saved before its settings can be opened, because the form is
   built from the sub-element’s saved configuration rather than from the row’s
   key and type.

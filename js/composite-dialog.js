@@ -13,11 +13,11 @@
 
 (function (Drupal, once) {
   /**
-   * Row inputs the table collects itself, all hidden.
+   * Row inputs the table collects itself: the title, and the hidden ones.
    *
    * Kept in step with the PHP constant of the same purpose.
    *
-   * @see \Drupal\webform_composite_settings\CompositeSubElementUi::TABLE_PROPERTIES_MOVED
+   * @see \Drupal\webform_composite_settings\CompositeSubElementUi::ROW_PROPERTIES
    */
   const FIELDS = ['title', 'placeholder', 'description', 'help', 'required'];
 

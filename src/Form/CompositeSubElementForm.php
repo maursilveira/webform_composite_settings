@@ -304,7 +304,7 @@ class CompositeSubElementForm extends FormBase implements BaseFormIdInterface, W
       $staged['#options'] = $options;
     }
 
-    foreach (CompositeSubElementUi::TABLE_PROPERTIES_MOVED as $name) {
+    foreach (CompositeSubElementUi::ROW_PROPERTIES as $name) {
       if (!isset($row[$name]) || $row[$name] === '') {
         continue;
       }
@@ -362,7 +362,7 @@ class CompositeSubElementForm extends FormBase implements BaseFormIdInterface, W
     $properties = WebformArrayHelper::removePrefix(WebformElementHelper::removeIgnoredProperties($properties));
 
     $fields = [];
-    foreach (CompositeSubElementUi::TABLE_PROPERTIES_MOVED as $name) {
+    foreach (CompositeSubElementUi::ROW_PROPERTIES as $name) {
       $value = $properties[$name] ?? '';
       // The table's required input is a hidden field standing in for a
       // checkbox, so it wants '1' or nothing.
@@ -380,7 +380,7 @@ class CompositeSubElementForm extends FormBase implements BaseFormIdInterface, W
       }
     }
 
-    $custom = array_diff_key($properties, array_flip(CompositeSubElementUi::TABLE_PROPERTIES_MOVED), array_flip(self::TABLE_OWNED));
+    $custom = array_diff_key($properties, array_flip(CompositeSubElementUi::ROW_PROPERTIES), array_flip(self::TABLE_OWNED));
 
     return [
       'key' => $this->subElementKey,

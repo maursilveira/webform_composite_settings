@@ -540,10 +540,15 @@ class CompositeSubElementSettingsTest extends EntityKernelTestBase {
     $this->assertSame('select', $columns['settings']['type']['#type']);
     $this->assertSame('webform_element_options', $columns['settings']['options']['#type']);
 
+    // So does the title: Webform requires one of every sub-element, and it is
+    // what the rows are read by. It keeps Webform's own required validation.
+    $this->assertSame('textfield', $columns['settings']['title']['#type']);
+    $this->assertTrue($columns['settings']['title']['#required']);
+
     // Everything else is deferred to the sub-element form, but must still post
     // back so that saving the composite does not discard it. That includes the
     // custom properties YAML, even for a user allowed to edit webform source.
-    foreach (['title', 'placeholder', 'description', 'help', 'required', 'custom'] as $property) {
+    foreach (['placeholder', 'description', 'help', 'required', 'custom'] as $property) {
       $this->assertSame('hidden', $columns['settings'][$property]['#type'], $property);
     }
     $this->assertArrayNotHasKey('labels', $columns);
@@ -659,7 +664,7 @@ class CompositeSubElementSettingsTest extends EntityKernelTestBase {
     }
     $this->assertNotNull($row, "The 'when' row should be present in the table.");
 
-    // Supported properties ride along in their hidden inputs.
+    // Supported properties ride along in the row's own inputs.
     $this->assertSame('When', $row['title']['#default_value']);
     $this->assertTrue($row['required']['#default_value']);
     // Anything the table has no column for ends up in custom properties.
