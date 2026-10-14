@@ -42,6 +42,44 @@
   let activeCell = null;
 
   /**
+   * Keys of the rows changed in the dialog, per element form.
+   *
+   * The table's own add and remove buttons rebuild it over Ajax, which keeps
+   * the staged values (they are form state) but replaces the markup, and the
+   * highlight with it. The keys are remembered here so the rows can be marked
+   * again once the new markup is attached. A key is the one identity a row
+   * keeps across a rebuild, since the rows are renumbered when one is removed.
+   *
+   * The keys are kept per form element rather than for the page, because the
+   * element form itself comes and goes without a page load: Webform opens it
+   * in its own dialog, refreshes the build page over Ajax when it is saved,
+   * and a cancelled form can be opened again. The form element outlives a
+   * rebuild of its table but not a reopening, which is exactly the lifetime
+   * the staged values have.
+   */
+  const changedKeys = new WeakMap();
+
+  /**
+   * Returns the set of changed keys for the form a row belongs to.
+   */
+  function changedKeysOf(cell) {
+    const form = cell.closest('form') || document.body;
+    if (!changedKeys.has(form)) {
+      changedKeys.set(form, new Set());
+    }
+    return changedKeys.get(form);
+  }
+
+  /**
+   * Returns whether a row is marked as changed.
+   */
+  function isChanged(cell) {
+    return (cell.closest('tr') || cell).classList.contains(
+      'webform-composite-settings-row--changed',
+    );
+  }
+
+  /**
    * Returns the name every input in the row starts with.
    *
    * Set server side from the key input's name; the key input itself is the
@@ -187,6 +225,11 @@
     (cell.closest('tr') || cell).classList.add(
       'webform-composite-settings-row--changed',
     );
+    const key = input(cell, '[key]');
+    if (key && key.value !== '') {
+      changedKeysOf(cell).add(key.value);
+    }
+
     const link = cell.querySelector('.webform-composite-settings-link');
     if (!link || link.querySelector('.webform-composite-settings-row-marker')) {
       return;
@@ -219,14 +262,27 @@
           return;
         }
 
+        // A row changed before the table was last rebuilt is still changed.
+        const keys = changedKeysOf(cell);
         const key = input(cell, '[key]');
+        if (key && keys.has(key.value)) {
+          markChanged(cell);
+        }
 
         // The key and type are typed after the table is built, so the button
         // follows them as they change rather than the state they were
-        // rendered in.
+        // rendered in. A changed row that is given a new key stays changed
+        // under that key. Only a changed row moves its key: another row's
+        // key may be typed through on the way to a different one, and that
+        // must not carry the first row's state away with it.
         sync(link, cell);
         if (key) {
+          let previous = key.value;
           key.addEventListener('input', function () {
+            if (isChanged(cell) && keys.delete(previous)) {
+              keys.add(key.value);
+            }
+            previous = key.value;
             sync(link, cell);
           });
         }

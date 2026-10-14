@@ -32,7 +32,7 @@ The modal does not save anything on its own. When you apply it, the values go ba
 
 - Every setting an element type supports, available on sub-elements without touching YAML.
 - Conditions and access rules on individual sub-elements. Webform already honours them inside composites; it just had no way to set them.
-- Edits that stay with the composite until you save it. Reopen a sub-element before saving and your pending changes are still there.
+- Edits that stay with the composite until you save it. Reopen a sub-element before saving and your pending changes are still there, and rows you have changed stay marked while you add or remove others.
 - Settings on rows that are not saved yet. A sub-element just added to the table, or every sub-element of a composite you are still adding, can be configured before anything is saved.
 - A title typed in the table carries into the modal, and a title set in the modal comes back to the table.
 - The same alterations other modules make to the element form, including Webform Validation and Webform Simplify.
@@ -83,8 +83,9 @@ into the table:
 * Staged changes are ordinary unsaved form state: reloading or leaving the page
   loses them, the same as any other edit in the table.
 * The highlight and asterisk live only in the page. The table’s own add and
-  remove buttons rebuild it over Ajax and clear them; the staged values
-  themselves survive that, since they are part of the form’s state.
+  remove buttons rebuild it over Ajax, and the staged values survive that,
+  since they are part of the form’s state; the page remembers the changed
+  rows by their key and marks them again once the table is back.
 * The values a row sends when the modal opens are treated as untrusted: an
   element type Webform does not allow in a composite is ignored in favour of
   the saved one, and the properties Webform refuses to store (render and form
@@ -182,6 +183,15 @@ used.
   was opened with are therefore repeated inside the form as a hidden input
   under the same request parameter name, so a rebuild on submit starts from
   the same key and type as the first build did.
+* **Changed rows.** The highlight and asterisk are page state. The table’s add
+  and remove buttons replace its markup over Ajax, so `js/composite-dialog.js`
+  keeps the keys of the rows changed since the last save and marks those rows
+  again whenever the behaviour attaches; a changed row that is given a new
+  key stays marked under the new one. The key is used because rows are
+  renumbered when one is removed. The keys are kept per element form rather
+  than per page: Webform opens that form in its own dialog and refreshes the
+  build page over Ajax when it is saved, so a page-wide list would mark rows
+  that have nothing pending the next time the form opens.
 * **Title in the table.** The title is the one row property that is both
   visible in the table and present in the modal. The modal seeds its Title
   field from the row and writes its result back into the same input, so the
@@ -237,7 +247,7 @@ used.
 | `src/CompositeSubElementUi.php` | Alters the composite table (hidden inputs, title under the key, per-row button, row attribute), hides inapplicable groups, scopes the tabs. |
 | `src/Form/CompositeSubElementForm.php` | The modal form: resolves the keys from the URL or the row, builds the plugin’s form, seeds it from the row, carries the row for the submit rebuild, stages the result, falls back to saving without JavaScript. |
 | `src/Ajax/StageCompositeRowCommand.php` | Ajax command carrying the result back to the row that opened the modal. |
-| `js/composite-dialog.js` | Enables the button once the row has a key and a type; opens the modal with the row’s values; applies the command to the row that opened it; marks the row. |
+| `js/composite-dialog.js` | Enables the button once the row has a key and a type; opens the modal with the row’s values; applies the command to the row that opened it; marks changed rows and keeps them marked across table rebuilds. |
 | `js/composite-tabs.js` | Initialises the dialog’s tabs. |
 | `css/composite-dialog.css` | Dialog sizing, row highlight and marker. |
 | `css/composite-tabs.css` | Webform’s tab spacing, repeated for the renamed wrapper. |
@@ -263,7 +273,8 @@ the form for the submit rebuild; the 404 cases; and settings surviving a
 re-save of the composite.
 
 The browser layer (opening the modal, the write-back, CodeMirror updates, the
-button’s disabled state, the row marker, dialog sizing) is not covered and needs a manual check after changes
+button’s disabled state, the row marker and its survival across table
+rebuilds, dialog sizing) is not covered and needs a manual check after changes
 to the JavaScript or CSS.
 
 ## Known limitations
